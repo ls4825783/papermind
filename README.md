@@ -36,57 +36,6 @@
 
 ---
 
-## Getting Started
-
-### 1. Clone & install
-
-```bash
-git clone https://github.com/ls4825783/papermind.git
-cd papermind
-npm install
-```
-
-### 2. Get your FREE Gemini API key
-
-1. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-2. Sign in with Google
-3. Click **Create API Key** — free, no credit card needed
-
-### 3. Set up environment variables
-
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local`:
-
-```env
-GEMINI_API_KEY=AIzaSy...your-key-here
-```
-
-### 4. Run locally
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000)
-
----
-
-## Deploy Free on Vercel
-
-1. Go to [vercel.com](https://vercel.com) and sign in with GitHub
-2. Click **Add New Project** → Import `papermind`
-3. Add environment variable:
-   - `GEMINI_API_KEY` = your Gemini key
-4. Click **Deploy**
-
-Your site is live at `papermind.vercel.app` 🚀
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/ls4825783/papermind)
-
----
 
 ## Project Structure
 
