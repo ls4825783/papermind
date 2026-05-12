@@ -2,9 +2,9 @@
 
 > Bloomberg Terminal for crypto research. Turn 40-page whitepapers into 2-minute alpha.
 
-![PaperMind](https://img.shields.io/badge/Solana-V3-9945FF?style=flat&logo=solana)
-![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat&logo=next.js)
-![Claude](https://img.shields.io/badge/Powered%20by-Claude%20AI-orange?style=flat)
+![PaperMind](https://img.shields.io/badge/Solana-V3-9945FF?style=flat)
+![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat)
+![Gemini](https://img.shields.io/badge/Powered%20by-Gemini%20AI-blue?style=flat)
 
 ---
 
@@ -13,14 +13,14 @@
 - **📄 PDF Analysis** — Upload any whitepaper, tokenomics doc, or DeSci paper
 - **🤖 AI Summary** — Plain-English summary, highlights, bullish & bearish points
 - **💼 Investment Thesis** — VC-style thesis generated on demand
-- **💬 Chat with Paper** — Ask follow-up questions, AI has read the full PDF
+- **💬 Chat with Paper** — Ask follow-up questions about the document
 - **🚨 Risk & Rug Detection** — Scam flags, risk score, LOW/MEDIUM/HIGH rating
 - **🪙 Tokenomics Analysis** — Token model, supply, vesting, utility breakdown
 - **◎ Solana Wallet Connect** — Phantom, Solflare, Backpack support
 - **📚 Scan History** — Per-wallet persistent scan history
 - **🏆 Community Leaderboard** — Shared across all users
-- **⭐ Community Ratings** — 5-star rating system, persisted globally
-- **🖼 Twitter Share Card** — 1200×630 Solana-branded PNG card generator
+- **⭐ Community Ratings** — 5-star rating system
+- **🖼 Twitter Share Card** — 1200×630 Solana-branded PNG card
 
 ---
 
@@ -29,11 +29,10 @@
 | Layer | Tech |
 |-------|------|
 | Frontend | Next.js 14 (App Router), React 18 |
-| AI | Anthropic Claude (`claude-sonnet-4-20250514`) |
+| AI | Google Gemini 1.5 Flash (FREE) |
 | Blockchain | Solana (Phantom / Solflare / Backpack) |
-| Styling | Pure CSS (no Tailwind, no component library) |
-| Storage | Claude Artifacts persistent storage API |
-| Deployment | Vercel (recommended) |
+| Styling | Pure CSS with Solana design system |
+| Deployment | Vercel (free hobby plan) |
 
 ---
 
@@ -47,40 +46,43 @@ cd papermind
 npm install
 ```
 
-### 2. Set up environment variables
+### 2. Get your FREE Gemini API key
+
+1. Go to [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+2. Sign in with Google
+3. Click **Create API Key** — free, no credit card needed
+
+### 3. Set up environment variables
 
 ```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and add your Anthropic API key:
+Edit `.env.local`:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AIzaSy...your-key-here
 ```
 
-Get your key at [console.anthropic.com](https://console.anthropic.com).
-
-### 3. Run locally
+### 4. Run locally
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000](http://localhost:3000)
 
 ---
 
-## Deployment (Vercel)
+## Deploy Free on Vercel
 
-```bash
-npm i -g vercel
-vercel --prod
-```
+1. Go to [vercel.com](https://vercel.com) and sign in with GitHub
+2. Click **Add New Project** → Import `papermind`
+3. Add environment variable:
+   - `GEMINI_API_KEY` = your Gemini key
+4. Click **Deploy**
 
-Set `ANTHROPIC_API_KEY` in your Vercel project environment variables.
-
-Or click:
+Your site is live at `papermind.vercel.app` 🚀
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/ls4825783/papermind)
 
@@ -91,33 +93,21 @@ Or click:
 ```
 papermind/
 ├── app/
-│   ├── layout.js          # Root layout + metadata
-│   ├── page.js            # Entry point
-│   ├── globals.css        # All styles (CSS variables)
+│   ├── layout.js
+│   ├── page.js
+│   ├── globals.css
 │   └── api/
-│       ├── analyze/       # PDF → AI analysis (server-side)
-│       ├── thesis/        # Investment thesis generation
-│       └── chat/          # Document Q&A chat
+│       ├── analyze/route.js   ← PDF analysis (Gemini)
+│       ├── thesis/route.js    ← Investment thesis (Gemini)
+│       └── chat/route.js      ← Document chat (Gemini)
 ├── components/
-│   ├── PaperMind.jsx      # Main app component
-│   ├── ui/
-│   │   ├── ScoreCard.jsx
-│   │   ├── BulletList.jsx
-│   │   ├── Stars.jsx
-│   │   └── WalletModal.jsx
-│   └── tabs/
-│       ├── OverviewTab.jsx
-│       ├── TokenomicsTab.jsx
-│       ├── ThesisTab.jsx
-│       ├── ChatTab.jsx
-│       ├── CommunityTab.jsx
-│       └── ShareCardTab.jsx
+│   ├── PaperMind.jsx          ← Main app
+│   ├── ui/                    ← ScoreCard, Stars, BulletList, WalletModal
+│   └── tabs/                  ← Overview, Tokenomics, Thesis, Chat, Community, ShareCard
 ├── lib/
-│   ├── parse.js           # XML parsing + utilities
-│   ├── solanaWallets.js   # Wallet detection + connect
-│   ├── shareCard.js       # Canvas card generator
-│   ├── prompts.js         # AI system prompts
-│   └── anthropic.js       # SDK client
+│   ├── parse.js               ← XML parsing utilities
+│   ├── solanaWallets.js       ← Wallet connect
+│   └── shareCard.js           ← Canvas card generator
 ├── .env.example
 ├── next.config.js
 └── package.json
@@ -125,41 +115,4 @@ papermind/
 
 ---
 
-## API Routes
-
-All AI calls are **server-side only** — your `ANTHROPIC_API_KEY` is never exposed to the browser.
-
-| Route | Method | Description |
-|-------|--------|-------------|
-| `/api/analyze` | POST | Analyse a PDF, returns structured JSON |
-| `/api/thesis` | POST | Generate VC-style investment thesis |
-| `/api/chat` | POST | Multi-turn chat with the PDF |
-
----
-
-## Security
-
-- API key is server-side only (Next.js API routes)
-- PDF processing happens server-side
-- No user data stored on any external server
-- Wallet connection is read-only (public key only, no signing)
-
----
-
-## Roadmap
-
-- [ ] Compare two papers side-by-side
-- [ ] Token-gated premium features
-- [ ] Email report delivery
-- [ ] Telegram bot integration
-- [ ] On-chain scan attestations (Solana)
-
----
-
-## License
-
-MIT — build freely, ship fast.
-
----
-
-Built with ❤️ on Solana · Powered by Claude AI
+Built with ❤️ on Solana · Powered by Google Gemini AI (Free)

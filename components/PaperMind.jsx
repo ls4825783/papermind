@@ -10,16 +10,18 @@ import CommunityTab from "@/components/tabs/CommunityTab";
 import ShareCardTab from "@/components/tabs/ShareCardTab";
 import { SOLANA_WALLETS, connectSolanaWallet, disconnectSolanaWallet } from "@/lib/solanaWallets";
 import { truncAddr, fmtDate, riskClass, riskMb, avgRating } from "@/lib/parse";
+import { parseSection, parseBullets, parseNum } from "@/lib/parse";
 import { generateShareCard } from "@/lib/shareCard";
+import { analyzeDocument, generateThesis, chatWithDoc } from "@/lib/gemini";
 
-const STEPS = ["READING PDF", "EXTRACTING TEXT", "AI ANALYSIS", "BUILDING REPORT"];
+const STEPS = ["READING PDF", "SENDING TO AI", "ANALYZING", "BUILDING REPORT"];
 const TABS = [
-  ["overview",  "📊 Overview"],
-  ["tokenomics","🪙 Tokenomics"],
-  ["thesis",    "💼 Thesis"],
-  ["chat",      "💬 Chat"],
-  ["community", "⭐ Community"],
-  ["sharecard", "🖼 Share Card"],
+  ["overview",   "📊 Overview"],
+  ["tokenomics", "🪙 Tokenomics"],
+  ["thesis",     "💼 Thesis"],
+  ["chat",       "💬 Chat"],
+  ["community",  "⭐ Community"],
+  ["sharecard",  "🖼 Share Card"],
 ];
 
 function readB64(file) {
@@ -32,38 +34,32 @@ function readB64(file) {
 }
 
 export default function PaperMind() {
-  // ── Wallet
+  const apiKey = process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
   const [wallet,      setWallet]     = useState(null);
   const [walletModal, setWalletModal]= useState(false);
-  // ── Upload
   const [file,        setFile]       = useState(null);
   const [drag,        setDrag]       = useState(false);
   const [loading,     setLoading]    = useState(false);
   const [step,        setStep]       = useState(0);
   const [error,       setError]      = useState("");
-  // ── Result
   const [result,      setResult]     = useState(null);
   const [docB64,      setDocB64]     = useState(null);
-  // ── Tabs
   const [activeTab,   setActiveTab]  = useState("overview");
-  // ── Thesis
   const [thesis,      setThesis]     = useState("");
   const [thesisLoad,  setThesisLoad] = useState(false);
-  // ── Chat
   const [chatMsgs,    setChatMsgs]   = useState([]);
   const [chatInput,   setChatInput]  = useState("");
   const [chatLoad,    setChatLoad]   = useState(false);
-  // ── Community / Leaderboard
   const [myScans,     setMyScans]    = useState([]);
   const [commScans,   setCommScans]  = useState([]);
   const [lbTab,       setLbTab]      = useState("community");
   const [myRating,    setMyRating]   = useState(0);
-  // ── Share card
   const [cardImg,     setCardImg]    = useState(null);
 
   const fileRef = useRef();
 
-  // ── Persist: load community scans
+  // Load community scans
   useEffect(() => {
     (async () => {
       try {
@@ -73,7 +69,7 @@ export default function PaperMind() {
     })();
   }, []);
 
-  // ── Persist: load wallet scans when wallet connects
+  // Load wallet scans
   useEffect(() => {
     if (!wallet) { setMyScans([]); return; }
     (async () => {
@@ -84,7 +80,13 @@ export default function PaperMind() {
     })();
   }, [wallet]);
 
-  // ── Save helpers
+  // Auto-generate share card
+  useEffect(() => {
+    if (activeTab === "sharecard" && result && !cardImg) {
+      setTimeout(() => setCardImg(generateShareCard(result, wallet?.addr || null)), 80);
+    }
+  }, [activeTab]);
+
   const saveMyScans = async (scans) => {
     if (!wallet) return;
     try { await window.storage?.set(`pm3-wallet:${wallet.addr}`, JSON.stringify(scans)); } catch {}
@@ -96,14 +98,6 @@ export default function PaperMind() {
     setCommScans(scans);
   };
 
-  // ── Auto-generate share card when tab selected
-  useEffect(() => {
-    if (activeTab === "sharecard" && result && !cardImg) {
-      setTimeout(() => setCardImg(generateShareCard(result, wallet?.addr || null)), 80);
-    }
-  }, [activeTab]);
-
-  // ── Wallet connect / disconnect
   const handleConnect = async (walletDef) => {
     try {
       const addr = await connectSolanaWallet(walletDef);
@@ -121,45 +115,52 @@ export default function PaperMind() {
     setWalletModal(false);
   };
 
-  // ── File handling
   const handleFile = useCallback((f) => {
     if (f?.type === "application/pdf") { setFile(f); setError(""); }
     else setError("Please upload a PDF file.");
   }, []);
 
-  // ── Analyse
   const analyze = async () => {
     if (!file) return;
+    if (!apiKey) { setError("Gemini API key not configured. Add GEMINI_API_KEY in Vercel environment variables."); return; }
     setLoading(true); setResult(null); setError(""); setStep(0);
     setThesis(""); setChatMsgs([]); setMyRating(0); setCardImg(null);
     try {
       const b64 = await readB64(file);
       setDocB64(b64);
-      setStep(1); await new Promise((r) => setTimeout(r, 500));
+      setStep(1); await new Promise((r) => setTimeout(r, 400));
       setStep(2);
 
-      const resp = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64: b64, fileName: file.name }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Analysis failed.");
+      // Call Gemini directly from browser — no server payload limit!
+      const raw = await analyzeDocument(apiKey, b64);
 
       setStep(3);
       const parsed = {
-        ...data.result,
-        fileName: file.name,
-        scannedAt: Date.now(),
-        walletAddr: wallet?.addr || null,
-        walletName: wallet?.name || null,
-        ratings: [],
+        title:        parseSection(raw, "title") || file.name.replace(".pdf", ""),
+        summary:      parseSection(raw, "summary"),
+        highlights:   parseBullets(raw, "highlights"),
+        bullish:      parseBullets(raw, "bullish"),
+        bearish:      parseBullets(raw, "bearish"),
+        tokenomics:   parseSection(raw, "tokenomics_analysis"),
+        tokenSupply:  parseSection(raw, "token_supply"),
+        tokenUtility: parseSection(raw, "token_utility"),
+        vesting:      parseSection(raw, "vesting"),
+        chain:        parseSection(raw, "chain"),
+        hypeScore:    parseNum(raw, "hype_score"),
+        bullScore:    parseNum(raw, "bull_score"),
+        riskScore:    parseNum(raw, "risk_score"),
+        scamFlags:    parseBullets(raw, "scam_flags"),
+        scamLevel:    parseSection(raw, "scam_level").toUpperCase() || "MEDIUM",
+        fileName:     file.name,
+        scannedAt:    Date.now(),
+        walletAddr:   wallet?.addr || null,
+        walletName:   wallet?.name || null,
+        ratings:      [],
       };
-      await new Promise((r) => setTimeout(r, 350));
+      await new Promise((r) => setTimeout(r, 300));
       setResult(parsed);
       setActiveTab("overview");
 
-      // Persist
       if (wallet) {
         const up = [parsed, ...myScans.filter((s) => s.fileName !== file.name)].slice(0, 30);
         saveMyScans(up);
@@ -167,62 +168,38 @@ export default function PaperMind() {
       const cu = [parsed, ...commScans.filter((s) => s.fileName !== file.name)].slice(0, 50);
       saveCommScans(cu);
     } catch (e) {
-      setError(e.message || "Analysis failed.");
+      setError(e.message || "Analysis failed. Check your Gemini API key.");
     } finally {
       setLoading(false); setStep(0);
     }
   };
 
-  // ── Thesis
-  const generateThesis = async () => {
-    if (!result || !docB64) return;
+  const handleGenerateThesis = async () => {
+    if (!result || !docB64 || !apiKey) return;
     setThesisLoad(true);
     try {
-      const resp = await fetch("/api/thesis", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdfBase64: docB64, title: result.title, summary: result.summary }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error);
-      setThesis(data.thesis);
+      const t = await generateThesis(apiKey, docB64, result.title, result.summary);
+      setThesis(t);
     } catch (e) {
       setThesis("Failed to generate thesis. Please try again.");
-    } finally {
-      setThesisLoad(false);
-    }
+    } finally { setThesisLoad(false); }
   };
 
-  // ── Chat
   const sendChat = async (q) => {
     const question = (q || chatInput).trim();
-    if (!question || !docB64) return;
+    if (!question || !docB64 || !apiKey) return;
     setChatInput("");
     const newMsgs = [...chatMsgs, { role: "user", content: question }];
     setChatMsgs(newMsgs);
     setChatLoad(true);
     try {
-      const resp = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pdfBase64: docB64,
-          messages: newMsgs,
-          docTitle: result?.title,
-          docSummary: result?.summary,
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error);
-      setChatMsgs((h) => [...h, { role: "assistant", content: data.reply }]);
+      const reply = await chatWithDoc(apiKey, docB64, newMsgs, result?.title, result?.summary);
+      setChatMsgs((h) => [...h, { role: "assistant", content: reply }]);
     } catch {
       setChatMsgs((h) => [...h, { role: "assistant", content: "Hit an error — please try again." }]);
-    } finally {
-      setChatLoad(false);
-    }
+    } finally { setChatLoad(false); }
   };
 
-  // ── Rate
   const rateDoc = (stars) => {
     setMyRating(stars);
     if (!result) return;
@@ -235,7 +212,6 @@ export default function PaperMind() {
     setResult((r) => ({ ...r, ratings: [...(r.ratings || []), stars] }));
   };
 
-  // ── Share actions
   const tweet = () => {
     if (!result) return;
     const txt = `🧠 Analyzed "${result.title}" on PaperMind\n\n📈 Bull: ${result.bullScore}/100  ⚠️ Risk: ${result.scamLevel}  🔥 Hype: ${result.hypeScore}/100\n\n◎ Solana AI Research Intelligence — V3`;
@@ -293,9 +269,11 @@ export default function PaperMind() {
       <div className="bg-grid" />
       <div className="page-content">
 
-        {/* ── NAV ── */}
+        {/* NAV */}
         <nav className="nav">
-          <div className="logo" onClick={reset}>Paper<span style={{ WebkitTextFillColor: "var(--green)" }}>Mind</span></div>
+          <div className="logo" onClick={reset}>
+            Paper<span style={{ WebkitTextFillColor: "var(--green)" }}>Mind</span>
+          </div>
           <div className="nav-pills">
             <div className="npill npill-v">V3 · SOLANA</div>
             {commScans.length > 0 && (
@@ -314,7 +292,7 @@ export default function PaperMind() {
           </button>
         </nav>
 
-        {/* ── WALLET MODAL ── */}
+        {/* WALLET MODAL */}
         {walletModal && (
           <WalletModal
             wallet={wallet}
@@ -325,7 +303,7 @@ export default function PaperMind() {
           />
         )}
 
-        {/* ══════════════ UPLOAD VIEW ══════════════ */}
+        {/* UPLOAD VIEW */}
         {!result && (
           <>
             <div className="hero">
@@ -361,13 +339,8 @@ export default function PaperMind() {
                 onDrop={(e) => { e.preventDefault(); setDrag(false); handleFile(e.dataTransfer.files[0]); }}
                 onClick={() => !loading && fileRef.current?.click()}
               >
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept=".pdf"
-                  disabled={loading}
-                  onChange={(e) => handleFile(e.target.files[0])}
-                />
+                <input ref={fileRef} type="file" accept=".pdf" disabled={loading}
+                  onChange={(e) => handleFile(e.target.files[0])} />
                 <div className="drop-zone-icon">📄</div>
                 <h3>Drop your PDF here</h3>
                 <p>Whitepapers · Research Papers · Tokenomics · DeSci · Audits</p>
@@ -416,15 +389,11 @@ export default function PaperMind() {
                     </button>
                   )}
                 </div>
-
                 {!wallet && lbTab === "mine" && (
                   <div className="lb-hint">🔒 Connect Solana wallet to see your personal scan history</div>
                 )}
-
                 {displayed.length === 0 ? (
-                  <div className="lb-empty">
-                    {lbTab === "mine" ? "No scans saved to this wallet yet." : "No community scans yet — be the first!"}
-                  </div>
+                  <div className="lb-empty">No scans yet — be the first!</div>
                 ) : displayed.map((s, i) => (
                   <div className="lb-item" key={i} onClick={() => loadScan(s)}>
                     <div className={`lb-rank${i < 3 ? " gold" : ""}`}>
@@ -455,10 +424,9 @@ export default function PaperMind() {
           </>
         )}
 
-        {/* ══════════════ DASHBOARD ══════════════ */}
+        {/* DASHBOARD */}
         {result && (
           <div className="dashboard">
-            {/* Doc header */}
             <div className="doc-header">
               <div className="doc-badge">📋</div>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -473,21 +441,15 @@ export default function PaperMind() {
               <span className={`risk-pill ${riskClass(result.scamLevel)}`}>RISK: {result.scamLevel}</span>
             </div>
 
-            {/* Scores */}
             <div className="scores-row">
               <ScoreCard variant="hype" label="HYPE SCORE" value={result.hypeScore} color="var(--sol)" />
               <ScoreCard variant="bull" label="BULL SCORE" value={result.bullScore} color="var(--green)" />
               <ScoreCard variant="risk" label="RISK SCORE" value={result.riskScore} color="var(--red)" />
             </div>
 
-            {/* Tabs */}
             <div className="tabs">
               {TABS.map(([id, label]) => (
-                <button
-                  key={id}
-                  className={`tab-btn${activeTab === id ? " active" : ""}`}
-                  onClick={() => setActiveTab(id)}
-                >
+                <button key={id} className={`tab-btn${activeTab === id ? " active" : ""}`} onClick={() => setActiveTab(id)}>
                   {label}
                 </button>
               ))}
@@ -495,12 +457,11 @@ export default function PaperMind() {
 
             {activeTab === "overview"   && <OverviewTab result={result} />}
             {activeTab === "tokenomics" && <TokenomicsTab result={result} />}
-            {activeTab === "thesis"     && <ThesisTab result={result} thesis={thesis} loading={thesisLoad} onGenerate={generateThesis} />}
+            {activeTab === "thesis"     && <ThesisTab result={result} thesis={thesis} loading={thesisLoad} onGenerate={handleGenerateThesis} />}
             {activeTab === "chat"       && <ChatTab messages={chatMsgs} input={chatInput} loading={chatLoad} onSend={sendChat} onInputChange={setChatInput} />}
             {activeTab === "community"  && <CommunityTab result={result} myRating={myRating} onRate={rateDoc} communityScans={commScans} onLoadScan={loadScan} />}
             {activeTab === "sharecard"  && <ShareCardTab cardImg={cardImg} onRegenerate={() => setCardImg(generateShareCard(result, wallet?.addr || null))} onTweet={tweet} onDownloadCard={downloadCard} onDownloadTxt={downloadTxt} result={result} />}
 
-            {/* Bottom action row */}
             <div className="action-row">
               <button className="action-btn twitter" onClick={tweet}>𝕏 Share on Twitter</button>
               <button className="action-btn download" onClick={downloadCard}>⬇ Download Card</button>
@@ -509,7 +470,6 @@ export default function PaperMind() {
             <button className="back-btn" onClick={reset}>← Analyze Another Paper</button>
           </div>
         )}
-
       </div>
     </>
   );
